@@ -73,11 +73,7 @@ __global__ void cudaMergeSinglePath(vec_t * A, uint32_t A_length, vec_t * B, uin
 /* POSITIVEINFINITY
  * Returns maximum value of a type
  */
-template<typename vec_t>
-__host__ __device__ vec_t getPositiveInfinity() {
-  vec_t tmp = 0;
-  return positiveInfinity(tmp);
-}
+
 __host__ __device__ float positiveInfinity(float tmp) {
   return FLT_MAX;
 }
@@ -90,14 +86,16 @@ __host__ __device__ uint32_t positiveInfinity(uint32_t tmp) {
 __host__ __device__ uint64_t positiveInfinity(uint64_t tmp) {
   return 0xFFFFFFFFFFFFFFFFUL;
 }
+
+template<typename vec_t>
+__host__ __device__ vec_t getPositiveInfinity() {
+  vec_t tmp = 0;
+  return positiveInfinity(tmp);
+}
 /* NEGATIVEINFINITY
  * Returns minimum value of a type
  */
-template<typename vec_t>
-__host__ __device__ vec_t getNegativeInfinity() {
-  vec_t tmp = 0;
-  return negativeInfinity(tmp);
-}
+
 __host__ __device__ float negativeInfinity(float tmp) {
   return FLT_MIN;
 }
@@ -109,6 +107,12 @@ __host__ __device__ uint32_t negativeInfinity(uint32_t tmp) {
 }
 __host__ __device__ uint64_t negativeInfinity(uint64_t tmp) {
   return 0;
+}
+
+template<typename vec_t>
+__host__ __device__ vec_t getNegativeInfinity() {
+  vec_t tmp = 0;
+  return negativeInfinity(tmp);
 }
 
 /* RAND64
