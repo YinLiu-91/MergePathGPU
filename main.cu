@@ -269,14 +269,20 @@ __global__ void cudaWorkloadDiagonals(vec_t * A, uint32_t A_length, vec_t * B, u
   // Search the diagonal
   while(!found) {
     // Update our coordinates within the 32-wide section of the diagonal 
+    // current_x+current_y始终等于combinedIndex
+    // 同时，由于每一项中都有threadOffset，其与threadIdx有关，所以每个线程上都差1，是连续的
+    // 保证搜寻区域是连续的
     int32_t current_x = x_top - ((x_top - x_bottom) >> 1) - threadOffset;
     int32_t current_y = y_top + ((y_bottom - y_top) >> 1) + threadOffset;
 
     // Are we a '1' or '0' with respect to A[x] <= B[x]
+    // 如果此时已经超过了x最下端
     if(current_x >= A_length || current_y < 0) {
       oneorzero[threadIdx.x] = 0;
+    // 若果此时已经超过了y的最端
     } else if(current_y >= B_length || current_x < 1) {
       oneorzero[threadIdx.x] = 1;
+    // 否则，
     } else {
       oneorzero[threadIdx.x] = (A[current_x-1] <= B[current_y]) ? 1 : 0;
     }
@@ -296,9 +302,11 @@ __global__ void cudaWorkloadDiagonals(vec_t * A, uint32_t A_length, vec_t * B, u
     // Adjust the search window on the diagonal
     if(threadIdx.x == 16) {
       if(oneorzero[31] != 0) {
+        // 说明此时还在左下方，需要右上方移动才能找到与对角线的交点（减小x增加y)
 	x_bottom = current_x;
 	y_bottom = current_y;
       } else {
+        // 说明此时在右上方，需要左下方移动窗口(增加x，减小y)
 	x_top = current_x;
 	y_top = current_y;
       }
