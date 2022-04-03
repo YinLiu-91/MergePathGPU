@@ -128,7 +128,7 @@ vec_t rand64() {
     if(sizeof(vec_t) > 4) rtn32[1] = rand();
   } while(!(rtn < getPositiveInfinity<vec_t>() &&
 	    rtn > getNegativeInfinity<vec_t>()));
-  return rtn;
+  return rtn%99;
 }
 
 /* MERGETYPE
@@ -136,9 +136,9 @@ vec_t rand64() {
  * Times the runs and reports on the average time
  * Checks the output of each merge for correctness
  */
-#define PADDING 1024
+#define PADDING 0
 template<typename vec_t, uint32_t blocks, uint32_t threads, uint32_t runs>
-void mergeType(uint64_t size) {
+void mergeType(uint64_t size) { // size 是main函数中传来的大小
   // Prepare host and device vectors
   thrust::host_vector<vec_t>hostA(size + (PADDING));
   thrust::host_vector<vec_t>hostB(size + (PADDING));
@@ -223,21 +223,21 @@ void mergeType(uint64_t size) {
 template<uint32_t blocks, uint32_t threads, uint32_t runs>
 void mergeAllTypes(uint64_t size) {
   PS("uint32_t", size)  mergeType<uint32_t, blocks, threads, runs>(size); printf("\n");
-  PS("float", size)	mergeType<float, blocks, threads, runs>(size);    printf("\n");
-  PS("uint64_t", size)  mergeType<uint64_t, blocks, threads, runs>(size); printf("\n");
-  PS("double", size)    mergeType<double, blocks, threads, runs>(size);   printf("\n");
+  // PS("float", size)	mergeType<float, blocks, threads, runs>(size);    printf("\n");
+  // PS("uint64_t", size)  mergeType<uint64_t, blocks, threads, runs>(size); printf("\n");
+  // PS("double", size)    mergeType<double, blocks, threads, runs>(size);   printf("\n");
 }
 
 /* MAIN
  * Generates random arrays, merges them.
  */
 int main(int argc, char *argv[]) {
-  #define blocks  112
-  #define threads 128
-  #define runs 10
-  mergeAllTypes<blocks, threads, runs>(1000000);
-  mergeAllTypes<blocks, threads, runs>(10000000);
-  mergeAllTypes<blocks, threads, runs>(100000000);
+  #define blocks  2
+  #define threads 32
+  #define runs 1
+  mergeAllTypes<blocks, threads, runs>(blocks*threads);
+  // mergeAllTypes<blocks, threads, runs>(32);
+  // mergeAllTypes<blocks, threads, runs>(32);
 }
 
 
@@ -284,6 +284,7 @@ __global__ void cudaWorkloadDiagonals(vec_t * A, uint32_t A_length, vec_t * B, u
       oneorzero[threadIdx.x] = 1;
     // 否则，
     } else {
+      // 这里访问了一次全局内存
       oneorzero[threadIdx.x] = (A[current_x-1] <= B[current_y]) ? 1 : 0;
     }
 
@@ -291,6 +292,7 @@ __global__ void cudaWorkloadDiagonals(vec_t * A, uint32_t A_length, vec_t * B, u
 
     // If we find the meeting of the '1's and '0's, we found the 
     // intersection of the path and diagonal
+    // 这里在共享内存上进行比较
     if(threadIdx.x > 0 && (oneorzero[threadIdx.x] != oneorzero[threadIdx.x-1])) {
       found = 1;
       diagonal_path_intersections[blockIdx.x] = current_x;
@@ -300,20 +302,22 @@ __global__ void cudaWorkloadDiagonals(vec_t * A, uint32_t A_length, vec_t * B, u
     __syncthreads();
 
     // Adjust the search window on the diagonal
-    if(threadIdx.x == 16) {
+    if(threadIdx.x == 16) { // 由于整个block的x_bottom，y_bottom，x_top，y_top都是一样的，
+                            // 所以只要用一个线程来换就好了
       if(oneorzero[31] != 0) {
         // 说明此时还在左下方，需要右上方移动才能找到与对角线的交点（减小x增加y)
-	x_bottom = current_x;
-	y_bottom = current_y;
+	      x_bottom = current_x;
+	      y_bottom = current_y;
       } else {
         // 说明此时在右上方，需要左下方移动窗口(增加x，减小y)
-	x_top = current_x;
-	y_top = current_y;
+	      x_top = current_x;
+	      y_top = current_y;
       }
     }
     __syncthreads();
+    int tmp=1;
   }
-
+  
   // Set the boundary diagonals (through 0,0 and A_length,B_length)
   if(threadIdx.x == 0 && blockIdx.x == 0) {
     diagonal_path_intersections[0] = 0;
