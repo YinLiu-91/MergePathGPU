@@ -252,6 +252,7 @@ __global__ void cudaWorkloadDiagonals(vec_t * A, uint32_t A_length, vec_t * B, u
 					    uint32_t * diagonal_path_intersections) {
 
   // Calculate combined index around the MergePath "matrix"
+  // combinedIndex为每个block应当的分割index，current_x和current_x之和应为此值
   int32_t combinedIndex = (uint64_t)blockIdx.x * ((uint64_t)A_length + (uint64_t)B_length) / (uint64_t)gridDim.x;
   __shared__ int32_t x_top, y_top, x_bottom, y_bottom,  found;
   __shared__ int32_t oneorzero[32];
@@ -271,28 +272,32 @@ __global__ void cudaWorkloadDiagonals(vec_t * A, uint32_t A_length, vec_t * B, u
     // Update our coordinates within the 32-wide section of the diagonal 
     // current_x+current_y始终等于combinedIndex
     // 同时，由于每一项中都有threadOffset，其与threadIdx有关，所以每个线程上都差1，是连续的
-    // 保证搜寻区域是连续的
+    // 保证搜寻区域是连续的。
+
+    // 由于"- threadOffset"，current_x会随着线程号的增加而减小；
+    // 由于"+ threadOffset", current_y会随着线程号的增加而增加；
+    // 因此，随着线程号增加，是沿着对角线右上角移动的
     int32_t current_x = x_top - ((x_top - x_bottom) >> 1) - threadOffset;
     int32_t current_y = y_top + ((y_bottom - y_top) >> 1) + threadOffset;
 
     // Are we a '1' or '0' with respect to A[x] <= B[x]
-    // 如果此时已经超过了x最下端
+    // 边界判断，如果此时已经超过了x最下端
     if(current_x >= A_length || current_y < 0) {
       oneorzero[threadIdx.x] = 0;
-    // 若果此时已经超过了y的最端
+    // 边界判断，若果此时已经超过了y的最端
     } else if(current_y >= B_length || current_x < 1) {
       oneorzero[threadIdx.x] = 1;
-    // 否则，
+    // 否则，在Merge Matrix内时
     } else {
       // 这里访问了一次全局内存
       oneorzero[threadIdx.x] = (A[current_x-1] <= B[current_y]) ? 1 : 0;
     }
-
+    // 由于是block内各个线程协作完成，因此需要块内同步结果
     __syncthreads();
 
     // If we find the meeting of the '1's and '0's, we found the 
     // intersection of the path and diagonal
-    // 这里在共享内存上进行比较
+    // 这里在共享内存上进行比较，如果某个oneorzero位置处有跳变，那么我们就找到了具体的交点位置
     if(threadIdx.x > 0 && (oneorzero[threadIdx.x] != oneorzero[threadIdx.x-1])) {
       found = 1;
       diagonal_path_intersections[blockIdx.x] = current_x;
@@ -302,14 +307,15 @@ __global__ void cudaWorkloadDiagonals(vec_t * A, uint32_t A_length, vec_t * B, u
     __syncthreads();
 
     // Adjust the search window on the diagonal
+    // 由于thread.x==16时正好处于折半查找的中间
     if(threadIdx.x == 16) { // 由于整个block的x_bottom，y_bottom，x_top，y_top都是一样的，
                             // 所以只要用一个线程来换就好了
       if(oneorzero[31] != 0) {
-        // 说明此时还在左下方，需要右上方移动才能找到与对角线的交点（减小x增加y)
+        // 说明此时跳变点还在左下方，需要向左下方移动才能找到与对角线的交点（增加x，减小y)
 	      x_bottom = current_x;
 	      y_bottom = current_y;
       } else {
-        // 说明此时在右上方，需要左下方移动窗口(增加x，减小y)
+        // 说明此时在右上方，需要右上方方移动窗口(减小x增加y)
 	      x_top = current_x;
 	      y_top = current_y;
       }
